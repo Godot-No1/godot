@@ -22,7 +22,7 @@ layout(r32f, set = 0, binding = 0) uniform restrict readonly image2D source_lumi
 
 #endif
 
-layout(r32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance;
+layout(rgba32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance;
 
 #ifdef WRITE_LUMINANCE
 layout(set = 2, binding = 0) uniform sampler2D prev_luminance;
@@ -36,6 +36,35 @@ layout(push_constant, std430) uniform Params {
 	float pad[3];
 }
 params;
+
+float ease_in_out_cubic(float x) {
+	if (x < 0.5) {
+		return 4.0 * pow(x, 3);
+	} else {
+		return 1.0 - pow(fma(-2.0, x, 2.0), 3) / 2.0;
+	}
+}
+
+float curve(float current_exposure, float target, float progress, float next_progress) {
+	float p_x = progress;
+	float p_y = current_exposure;
+	float end_y = target;
+	float q_x = next_progress;
+
+	float spx = ease_in_out_cubic(p_x);
+	// 2. 根據公式求解 start_y
+	// start_y = (p_y - end_y * spx) / (1 - spx);
+	float start_y = (p_y - end_y * spx) / (1.0 - spx);
+
+	// 3. 計算 S(q_x)
+	float sqx = ease_in_out_cubic(q_x);
+
+	// 4. 計算最終的 q_y
+	// q_y = start_y + (end_y - start_y) * sqx;
+	float q_y = fma(end_y - start_y, sqx, start_y);
+
+	return q_y;
+}
 
 void main() {
 	uint t = gl_LocalInvocationID.y * BLOCK_SIZE + gl_LocalInvocationID.x;
@@ -73,10 +102,26 @@ void main() {
 		float avg = tmp_data[0] / float(rect_size.x * rect_size.y);
 		//float avg = tmp_data[0] / float(BLOCK_SIZE*BLOCK_SIZE);
 		pos /= ivec2(BLOCK_SIZE);
+		float target = 0.0;
+		float progress = 0.0;
 #ifdef WRITE_LUMINANCE
-		float prev_lum = texelFetch(prev_luminance, ivec2(0, 0), 0).r; //1 pixel previous exposure
-		avg = clamp(prev_lum + (avg - prev_lum) * params.exposure_adjust, params.min_luminance, params.max_luminance);
+		vec3 texture = texelFetch(prev_luminance, ivec2(0, 0), 0).rgb;
+		float prev_lum = texture.r; //1 pixel previous exposure
+		target  = texture.g;
+		progress = texture.b;
+		// avg = clamp(prev_lum + (avg - prev_lum) * params.exposure_adjust, params.min_luminance, params.max_luminance);
+		if (progress >= 1.0 || abs(avg - target) > 0.02) { // TODO: get the "0.1" from UI
+			target = avg;
+			progress = 0.0;
+		}
+		float next_progress = min(progress + params.exposure_adjust, 1.0);
+		avg = clamp(
+			curve(prev_lum, avg, progress, next_progress),
+			params.min_luminance,
+			params.max_luminance
+		);
+		progress = next_progress;
 #endif
-		imageStore(dest_luminance, pos, vec4(avg));
+		imageStore(dest_luminance, pos, vec4(avg, target, progress, 0.0));
 	}
 }
