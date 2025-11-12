@@ -556,16 +556,20 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--quit-after <int>", "Quit after the given number of iterations. Set to 0 to disable.\n");
 	print_help_option("-l, --language <locale>", "Use a specific locale (<locale> being a two-letter code).\n");
 	print_help_option("--path <directory>", "Path to a project (<directory> must contain a \"project.godot\" file).\n");
+#ifdef OVERRIDE_ENABLED
 	print_help_option("--scene <path>", "Path or UID of a scene in the project that should be started.\n");
 	print_help_option("-u, --upwards", "Scan folders upwards for project.godot file.\n");
 	print_help_option("--main-pack <file>", "Path to a pack (.pck) file to load.\n");
+#endif // OVERRIDE_ENABLED
 #ifdef DISABLE_DEPRECATED
 	print_help_option("--render-thread <mode>", "Render thread mode (\"safe\", \"separate\").\n");
 #else
 	print_help_option("--render-thread <mode>", "Render thread mode (\"unsafe\" [deprecated], \"safe\", \"separate\").\n");
-#endif
+#endif // DISABLE_DEPRECATED
+#ifdef OVERRIDE_ENABLED
 	print_help_option("--remote-fs <address>", "Remote filesystem (<host/IP>[:<port>] address).\n");
 	print_help_option("--remote-fs-password <password>", "Password for remote filesystem.\n");
+#endif // OVERRIDE_ENABLED
 
 	print_help_option("--audio-driver <driver>", "Audio driver [");
 	for (int i = 0; i < AudioDriverManager::get_driver_count(); i++) {
@@ -633,7 +637,7 @@ void Main::print_help(const char *p_binary) {
 #ifdef DEBUG_ENABLED
 	print_help_option("--gpu-abort", "Abort on graphics API usage errors (usually validation layer errors). May help see the problem if your system freezes.\n", CLI_OPTION_AVAILABILITY_TEMPLATE_DEBUG);
 #endif
-	print_help_option("--generate-spirv-debug-info", "Generate SPIR-V debug information. This allows source-level shader debugging with RenderDoc.\n");
+	print_help_option("--generate-spirv-debug-info", "Generate SPIR-V debug information (Vulkan only). This allows source-level shader debugging with RenderDoc.\n");
 #if defined(DEBUG_ENABLED) || defined(DEV_ENABLED)
 	print_help_option("--extra-gpu-memory-tracking", "Enables additional memory tracking (see class reference for `RenderingDevice.get_driver_and_device_memory_report()` and linked methods). Currently only implemented for Vulkan. Enabling this feature may cause crashes on some systems due to buggy drivers or bugs in the Vulkan Loader. See https://github.com/godotengine/godot/issues/95967\n");
 	print_help_option("--accurate-breadcrumbs", "Force barriers between breadcrumbs. Useful for narrowing down a command causing GPU resets. Currently only implemented for Vulkan.\n");
@@ -662,10 +666,12 @@ void Main::print_help(const char *p_binary) {
 	print_help_option("--editor-pseudolocalization", "Enable pseudolocalization for the editor and the project manager.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 #endif
 
+#ifdef OVERRIDE_ENABLED
 	print_help_title("Standalone tools");
 	print_help_option("-s, --script <script>", "Run a script.\n");
 	print_help_option("--main-loop <main_loop_name>", "Run a MainLoop specified by its global class name.\n");
 	print_help_option("--check-only", "Only parse for errors and quit (use with --script).\n");
+#endif // OVERRIDE_ENABLED
 #ifdef TOOLS_ENABLED
 	print_help_option("--import", "Starts the editor, waits for any resources to be imported, and then quits.\n", CLI_OPTION_AVAILABILITY_EDITOR);
 	print_help_option("--export-release <preset> <path>", "Export the project in release mode using the given preset and output path. The preset name should match one defined in \"export_presets.cfg\".\n", CLI_OPTION_AVAILABILITY_EDITOR);
@@ -740,6 +746,13 @@ Error Main::test_setup() {
 	physics_server_2d_manager = memnew(PhysicsServer2DManager);
 #endif // PHYSICS_2D_DISABLED
 
+#ifndef NAVIGATION_2D_DISABLED
+	NavigationServer2DManager::initialize_server_manager();
+#endif // NAVIGATION_2D_DISABLED
+#ifndef NAVIGATION_3D_DISABLED
+	NavigationServer3DManager::initialize_server_manager();
+#endif // NAVIGATION_3D_DISABLED
+
 	// From `Main::setup2()`.
 	register_early_core_singletons();
 	initialize_modules(MODULE_INITIALIZATION_LEVEL_CORE);
@@ -759,7 +772,7 @@ Error Main::test_setup() {
 	if (!locale.is_empty()) {
 		translation_server->set_locale(locale);
 	}
-	translation_server->load_translations();
+	translation_server->load_project_translations(translation_server->get_main_domain());
 	ResourceLoader::load_translation_remaps(); //load remaps for resources
 
 	// Initialize ThemeDB early so that scene types can register their theme items.
@@ -857,9 +870,11 @@ void Main::test_cleanup() {
 
 #ifndef NAVIGATION_2D_DISABLED
 	NavigationServer2DManager::finalize_server();
+	NavigationServer2DManager::finalize_server_manager();
 #endif // NAVIGATION_2D_DISABLED
 #ifndef NAVIGATION_3D_DISABLED
 	NavigationServer3DManager::finalize_server();
+	NavigationServer3DManager::finalize_server_manager();
 #endif // NAVIGATION_3D_DISABLED
 
 	GDExtensionManager::get_singleton()->deinitialize_extensions(GDExtension::INITIALIZATION_LEVEL_SERVERS);
@@ -1432,7 +1447,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing language argument, aborting.\n");
 				goto error;
 			}
-
+#ifdef OVERRIDE_ENABLED
 		} else if (arg == "--remote-fs") { // remote filesystem
 
 			if (N) {
@@ -1451,6 +1466,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing remote filesystem password, aborting.\n");
 				goto error;
 			}
+#endif // OVERRIDE_ENABLED
 		} else if (arg == "--render-thread") { // render thread mode
 
 			if (N) {
@@ -1651,8 +1667,10 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing relative or absolute path, aborting.\n");
 				goto error;
 			}
+#ifdef OVERRIDE_ENABLED
 		} else if (arg == "-u" || arg == "--upwards") { // scan folders upwards
 			upwards = true;
+#endif // OVERRIDE_ENABLED
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
 			quit_after = 1;
 #ifdef TOOLS_ENABLED
@@ -1723,7 +1741,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing time scale argument, aborting.\n");
 				goto error;
 			}
-
+#ifdef OVERRIDE_ENABLED
 		} else if (arg == "--main-pack") {
 			if (N) {
 				main_pack = N->get();
@@ -1732,7 +1750,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 				OS::get_singleton()->print("Missing path to main pack file, aborting.\n");
 				goto error;
 			}
-
+#endif // OVERRIDE_ENABLED
 		} else if (arg == "-d" || arg == "--debug") {
 			debug_uri = "local://";
 			OS::get_singleton()->_debug_stdout = true;
@@ -1809,7 +1827,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		} else if (arg == "--editor-pseudolocalization") {
 			editor_pseudolocalization = true;
 #endif // TOOLS_ENABLED
-		} else if (arg == "--profile-gpu") {
+		} else if (arg == "--gpu-profile") {
 			profile_gpu = true;
 		} else if (arg == "--disable-crash-handler") {
 			OS::get_singleton()->disable_crash_handler();
@@ -1913,6 +1931,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 	}
 #endif
 
+#ifdef OVERRIDE_ENABLED
 	// Network file system needs to be configured before globals, since globals are based on the
 	// 'project.godot' file which will only be available through the network if this is enabled
 	if (!remotefs.is_empty()) {
@@ -1930,6 +1949,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			goto error;
 		}
 	}
+#endif // OVERRIDE_ENABLED
 
 	OS::get_singleton()->_in_editor = editor;
 	if (globals->setup(project_path, main_pack, upwards, editor) == OK) {
@@ -3007,6 +3027,13 @@ Error Main::setup2(bool p_show_boot_logo) {
 	physics_server_2d_manager = memnew(PhysicsServer2DManager);
 #endif // PHYSICS_2D_DISABLED
 
+#ifndef NAVIGATION_2D_DISABLED
+	NavigationServer2DManager::initialize_server_manager();
+#endif // NAVIGATION_2D_DISABLED
+#ifndef NAVIGATION_3D_DISABLED
+	NavigationServer3DManager::initialize_server_manager();
+#endif // NAVIGATION_3D_DISABLED
+
 	register_server_types();
 	{
 		OS::get_singleton()->benchmark_begin_measure("Servers", "Modules and Extensions");
@@ -3429,7 +3456,7 @@ Error Main::setup2(bool p_show_boot_logo) {
 		if (!locale.is_empty()) {
 			translation_server->set_locale(locale);
 		}
-		translation_server->load_translations();
+		translation_server->load_project_translations(translation_server->get_main_domain());
 		ResourceLoader::load_translation_remaps(); //load remaps for resources
 
 		OS::get_singleton()->benchmark_end_measure("Startup", "Translations and Remaps");
@@ -3670,7 +3697,8 @@ void Main::setup_boot_logo() {
 
 	if (show_logo) { //boot logo!
 		const bool boot_logo_image = GLOBAL_DEF_BASIC("application/boot_splash/show_image", true);
-		const bool boot_logo_scale = GLOBAL_DEF_BASIC("application/boot_splash/fullsize", true);
+
+		const RenderingServer::SplashStretchMode boot_stretch_mode = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "application/boot_splash/stretch_mode", PROPERTY_HINT_ENUM, "Disabled,Keep,Keep Width,Keep Height,Cover,Ignore"), 1);
 		const bool boot_logo_filter = GLOBAL_DEF_BASIC("application/boot_splash/use_filter", true);
 		String boot_logo_path = GLOBAL_DEF_BASIC(PropertyInfo(Variant::STRING, "application/boot_splash/image", PROPERTY_HINT_FILE, "*.png"), String());
 
@@ -3710,7 +3738,7 @@ void Main::setup_boot_logo() {
 		boot_bg_color = GLOBAL_DEF_BASIC("application/boot_splash/bg_color", (editor || project_manager) ? boot_splash_editor_bg_color : boot_splash_bg_color);
 #endif
 		if (boot_logo.is_valid()) {
-			RenderingServer::get_singleton()->set_boot_image(boot_logo, boot_bg_color, boot_logo_scale, boot_logo_filter);
+			RenderingServer::get_singleton()->set_boot_image_with_stretch(boot_logo, boot_bg_color, boot_stretch_mode, boot_logo_filter);
 
 		} else {
 #ifndef NO_DEFAULT_BOOT_LOGO
@@ -3724,7 +3752,7 @@ void Main::setup_boot_logo() {
 			MAIN_PRINT("Main: ClearColor");
 			RenderingServer::get_singleton()->set_default_clear_color(boot_bg_color);
 			MAIN_PRINT("Main: Image");
-			RenderingServer::get_singleton()->set_boot_image(splash, boot_bg_color, false);
+			RenderingServer::get_singleton()->set_boot_image_with_stretch(splash, boot_bg_color, RenderingServer::SPLASH_STRETCH_MODE_DISABLED);
 #endif
 		}
 
@@ -3815,6 +3843,7 @@ int Main::start() {
 		} else if (E->get() == "--install-android-build-template") {
 			install_android_build_template = true;
 #endif // TOOLS_ENABLED
+#ifdef OVERRIDE_ENABLED
 		} else if (E->get() == "--scene") {
 			E = E->next();
 			if (E) {
@@ -3839,6 +3868,7 @@ int Main::start() {
 				// for non-game applications.
 				game_path = scene_path;
 			}
+#endif // OVERRIDE_ENABLED
 		}
 		// Then parameters that have an argument to the right.
 		else if (E->next()) {
@@ -4043,6 +4073,19 @@ int Main::start() {
 
 #endif // TOOLS_ENABLED
 
+#ifdef OVERRIDE_ENABLED
+	bool disable_override = GLOBAL_GET("application/config/disable_project_settings_override");
+	if (disable_override) {
+		script = String();
+		game_path = String();
+		main_loop_type = String();
+	}
+#else
+	script = String();
+	game_path = String();
+	main_loop_type = String();
+#endif // OVERRIDE_ENABLED
+
 	if (script.is_empty() && game_path.is_empty()) {
 		const String main_scene = GLOBAL_GET("application/run/main_scene");
 		if (main_scene.begins_with("uid://")) {
@@ -4232,7 +4275,7 @@ int Main::start() {
 						// Cache the scene reference before loading it (for cyclic references)
 						Ref<PackedScene> scn;
 						scn.instantiate();
-						scn->set_path(info.path);
+						scn->set_path(ResourceUID::ensure_path(info.path));
 						scn->reload_from_file();
 						ERR_CONTINUE_MSG(scn.is_null(), vformat("Failed to instantiate an autoload, can't load from path: %s.", info.path));
 
@@ -4386,6 +4429,9 @@ int Main::start() {
 
 			bool snap_controls = GLOBAL_GET("gui/common/snap_controls_to_pixels");
 			sml->get_root()->set_snap_controls_to_pixels(snap_controls);
+
+			int drag_threshold = GLOBAL_GET("gui/common/drag_threshold");
+			sml->get_root()->set_drag_threshold(drag_threshold);
 
 			bool font_oversampling = GLOBAL_GET("gui/fonts/dynamic_fonts/use_oversampling");
 			sml->get_root()->set_use_oversampling(font_oversampling);
@@ -4949,9 +4995,11 @@ void Main::cleanup(bool p_force) {
 // Before deinitializing server extensions, finalize servers which may be loaded as extensions.
 #ifndef NAVIGATION_2D_DISABLED
 	NavigationServer2DManager::finalize_server();
+	NavigationServer2DManager::finalize_server_manager();
 #endif // NAVIGATION_2D_DISABLED
 #ifndef NAVIGATION_3D_DISABLED
 	NavigationServer3DManager::finalize_server();
+	NavigationServer3DManager::finalize_server_manager();
 #endif // NAVIGATION_3D_DISABLED
 	finalize_physics();
 
